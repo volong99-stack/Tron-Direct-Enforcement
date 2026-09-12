@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "status": "AUTHORIZED_MIT_SOURCE_PUBLICATION_CANDIDATE",
+  "allowedFiles": [
+    "AssemblyInfo.cs",
+    "DISCLOSURE-INVENTORY.md",
+    "LICENSE",
+    "README.md",
+    "RELEASE-FILES.json",
+    "TronDirectEnforcer.cs",
+    "TronDirectEnforcerPureTests.cs",
+    "build.ps1",
+    "config.disabled.example.json"
+  ],
+  "generatedBuildFilesExcluded": true,
+  "recursiveDirectoryPublishingAllowed": false,
+  "runtimeOrDeploymentDataAllowed": false,
+  "licenseAdopted": "MIT",
+  "providerEligibilityEstablished": false,
+  "signed": false,
+  "productionRuntimeValidated": false,
+  "authenticatedDualReviewIntegrationValidated": false
+}

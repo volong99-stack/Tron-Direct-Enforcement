@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "authority": "ADMIN_CONTROLLER_ATTESTATION",
+  "deviceId": "<independently-verified-device-uuid>",
+  "machineGuid": "<independently-verified-local-machine-guid>",
+  "controllerSid": "<verified-controller-user-SID>",
+  "policyHash": "<canonical-current-review-policy-sha256>",
+  "maxAuthorizationSeconds": 600,
+  "authorizationEnabled": false,
+  "protectedAddresses": [],
+  "protectedProgramPaths": [],
+  "allowedProgramPaths": [],
+  "programSha256Pins": {}
+}
