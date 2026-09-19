@@ -108,10 +108,10 @@ if ($testExitCode -ne 0 -or -not (Test-Path -LiteralPath $testOutput -PathType L
 
 $nativeVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($nativeOutput)
 $testVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($testOutput)
-if ($nativeVersion.FileVersion -ne '0.1.0.0' -or $testVersion.FileVersion -ne '0.1.0.0' -or
-    $nativeVersion.ProductVersion -ne '0.1.0-private-candidate' -or
+if ($nativeVersion.FileVersion -ne '0.1.0.1' -or $testVersion.FileVersion -ne '0.1.0.1' -or
+    $nativeVersion.ProductVersion -ne '0.1.0-dev-preview.1' -or
     $nativeVersion.ProductVersion -ne $testVersion.ProductVersion) {
-    throw 'The compiled production/test metadata versions do not match the fixed candidate versions.'
+    throw 'The compiled production/test metadata versions do not match the fixed developer-preview versions.'
 }
 $hashes = [ordered]@{}
 foreach ($inputFile in @($nativeSource, $testSource, $assemblyMetadata, $nativeOutput, $testOutput)) {
@@ -132,4 +132,4 @@ $receipt = [ordered]@{
 $receipt | ConvertTo-Json -Depth 4 |
     Out-File -LiteralPath (Join-Path $outputDirectory 'build-receipt.json') -Encoding utf8
 Write-Output 'Both binaries compiled. Neither binary was executed, signed, installed, or published.'
-Write-Output 'The generated build directory is excluded from the proposed source-publication whitelist.'
+Write-Output 'Raw build output is excluded from source publication. CI packages only the explicit developer-preview allowance.'

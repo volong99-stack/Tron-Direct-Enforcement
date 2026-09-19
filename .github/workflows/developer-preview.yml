@@ -1,0 +1,75 @@
+name: Developer preview
+
+on:
+  push:
+    branches: [main, 'codex/free-preview-*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    # Use the runner's existing script policy; never pass ExecutionPolicy Bypass.
+    shell: powershell -NoLogo -NoProfile -NonInteractive -File {0}
+
+jobs:
+  check:
+    if: github.ref != 'refs/heads/main' || github.event_name == 'pull_request'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Compile with the verified Windows compiler
+        run: ./build.ps1
+      - name: Run pure tests and Windows refusal probes as a standard user
+        run: ./ci/Test-Preview.ps1
+      - name: Check the preview archive and disabled defaults
+        run: ./ci/Package-Preview.ps1
+
+  publish-preview:
+    if: github.repository == 'volong99-stack/Tron-Direct-Enforcement' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Compile with the verified Windows compiler
+        run: ./build.ps1
+      - name: Run pure tests and Windows refusal probes as a standard user
+        run: ./ci/Test-Preview.ps1
+      - name: Package the exact reviewed preview files
+        run: ./ci/Package-Preview.ps1
+      - name: Attest the preview archive
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/TRON-developer-preview-*.zip
+      - name: Verify attestation and publish a prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archives = @(Get-ChildItem -LiteralPath dist -Filter 'TRON-developer-preview-*.zip' -File)
+          if ($archives.Count -ne 1) { throw 'Exactly one archive is required.' }
+          $archive = $archives[0]
+          Copy-Item -LiteralPath $env:ATTESTATION_BUNDLE -Destination dist/attestation.sigstore.json
+          gh attestation verify $archive.FullName --repo $env:GITHUB_REPOSITORY --bundle dist/attestation.sigstore.json --signer-workflow "$env:GITHUB_REPOSITORY/.github/workflows/developer-preview.yml" --source-digest $env:GITHUB_SHA --source-ref refs/heads/main --deny-self-hosted-runners
+          if ($LASTEXITCODE -ne 0) { throw 'Attestation verification failed.' }
+          $tag = 'preview-' + $env:GITHUB_SHA.Substring(0,12)
+          gh release create $tag $archive.FullName dist/SHA256SUMS.txt dist/attestation.sigstore.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "TRON developer preview $($env:GITHUB_SHA.Substring(0,12))" --notes-file dist/release-notes.md --prerelease --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Release creation failed; existing releases are never overwritten.' }
