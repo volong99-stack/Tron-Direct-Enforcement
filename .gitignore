@@ -1,0 +1,6 @@
+build/
+dist/
+ci-results/
+*.pfx
+*.p12
+*.key
