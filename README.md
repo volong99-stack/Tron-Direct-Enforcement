@@ -1,6 +1,6 @@
 # TRON Direct Enforcement
 
-**Experimental MIT-licensed source candidate. Unsigned, not installed or activated, and not runtime-validated for production.** Public source availability does not establish signing-provider acceptance, verified adoption or reputation, or readiness to protect a computer.
+**Experimental MIT-licensed developer preview. Unsigned and not runtime-validated for production.** Public source availability does not establish signing-provider acceptance, verified adoption or reputation, or readiness to protect a computer.
 
 The native adapter accepts an explicit, elevated administrator-controller attestation before adding one narrow outbound Windows firewall rule. The authority is named `ADMIN_CONTROLLER_ATTESTATION`; it is not a cryptographic proof that an AI review occurred. The caller must independently witness a real Codex review and make a separate current ChatGPT controller decision about the exact technical evidence and proposed action. That authenticated end-to-end review integration is not supplied or validated by this standalone source release. The native layer checks the administrator token, pinned controller identity, bound metadata, scope, freshness, replay state and executable identity. It cannot authenticate external transcripts or establish the truth of evidence from its hashes. This project is not affiliated with or endorsed by Microsoft or OpenAI.
 
@@ -12,15 +12,15 @@ Windows firewall rules are path-based. The adapter verifies the current file und
 
 ## Files and build
 
-`RELEASE-FILES.json` is the exact source-file whitelist. `DISCLOSURE-INVENTORY.md` describes what those files disclose. Generated binaries, build receipts/logs, credentials, runtime configuration, deployment data and operating records are outside that whitelist.
+`RELEASE-FILES.json` is the exact source-file whitelist. `DISCLOSURE-INVENTORY.md` describes what those files disclose. The separate `previewArchiveFiles` list permits only the documented developer-preview archive contents. Raw build receipts/logs, credentials, runtime configuration, deployment data and operating records remain excluded. See [PREVIEW.md](PREVIEW.md) for verification and [VALIDATION-PLAN.md](VALIDATION-PLAN.md) for remaining runtime work.
 
 `build.ps1` uses only the installed Microsoft .NET Framework C# compiler and local framework references. It locates the fixed framework installation under the Windows directory, rejects reparse paths, and requires a valid Microsoft compiler signature and matching compiler identity. It refuses an existing build-output directory. It does not download tools, change execution policy, request elevation, sign files, execute either result, install components, or publish anything.
 
 When local policy permits ordinary PowerShell script execution, invoke it from its directory with `./build.ps1`. If policy refuses the script or generated programs, stop and use a separately approved build/validation environment. Do not weaken or bypass application-control or script policies to run this candidate.
 
-Production output uses `/target:winexe` so launching it does not create a console window. The pure harness uses `/target:exe`. Both include the same `AssemblyInfo.cs` and fixed file/assembly version `0.1.0.0`, with informational version `0.1.0-private-candidate`. This historical candidate version metadata is retained to match the inspected build procedure. The release includes subsequent native source corrections; the version text is not a claim that this exact source snapshot has passed runtime tests. The script records compiler/source/output hashes locally under `build/`. Those generated records are not approved for publication.
+Production output uses `/target:winexe` so launching it does not create a console window. The pure harness uses `/target:exe`. Both include the same `AssemblyInfo.cs` and file/assembly version `0.1.0.1`, with informational version `0.1.0-dev-preview.1`. Version text does not establish passing tests; inspect the release's exact commit and validation summary. The script records compiler/source/output hashes locally under `build/`. Those generated records are not approved for publication.
 
-The pure-test harness uses fictional identifiers and synthetic in-memory evidence. A successful build is not a passing test result, and a passing pure harness would not establish native privilege isolation, scheduling, traffic blocking, expiry, crash recovery or production readiness. Run any eventual pure harness without elevation in a permitted test environment; do not describe its fabricated review fixtures as actual model confirmations.
+The pure-test harness uses fictional identifiers and synthetic in-memory evidence. A successful build is not a passing test result, and a passing pure harness would not establish native privilege isolation, scheduling, traffic blocking, expiry, crash recovery or production readiness. Run the pure harness without elevation in a permitted test environment; do not describe its fabricated review fixtures as actual model confirmations.
 
 ## Configuration and operation limits
 
@@ -36,7 +36,7 @@ Use a verified elevated controller session and the exact protected installed exe
 
 ## License and signing status
 
-This standalone source is licensed under the MIT license in `LICENSE`. Public distribution is limited to the files listed in `RELEASE-FILES.json`; private operating records and generated artifacts are excluded.
+This standalone source is licensed under the MIT license in `LICENSE`. Source distribution is limited to `allowedFiles` in `RELEASE-FILES.json`. The separate developer-preview allowance covers only `previewArchiveFiles` and the named release sidecars. Private operating records and all other generated artifacts remain excluded.
 
 No code-signing provider has accepted this project or signed this candidate. Free signing, if pursued, depends on the provider's independent eligibility, project reputation, build verification and release approval requirements. A new public repository and MIT license do not establish eligibility. No paid signing service is required or configured by this source.
 
@@ -50,6 +50,8 @@ This standalone native program implements no telemetry or network-upload client.
 
 ## Validation status
 
-The corrected native source compiled privately with the installed, signature-verified Microsoft .NET Framework compiler. Its corresponding private harness compiled but was not executed. The public harness applies only fixture-privacy substitutions to that private harness; this exact sanitized harness has not been separately compiled or executed. Seventeen regression cases were added for authorization-history continuity and removal when a destination becomes protected; they have not been run.
+The developer-preview workflow compiles the exact checked-out source, runs the in-memory harness as a standard Windows user, and runs eight native process refusal probes from an uninstalled directory. A passing run records the observed test counts in the preview's `VALIDATION.json`. Consult that file and its linked successful GitHub run for the specific release; workflow presence alone is not evidence that tests passed.
 
-The unchanged build script previously passed Windows PowerShell syntax parsing with zero errors; the script itself was not executed. Its assembly metadata and build settings are preserved. No generated executable in this source candidate is signed, installed or activated. Live blocking, expiry, rollback, administrator isolation and authenticated end-to-end Codex/ChatGPT confirmation remain unverified for this candidate. A successful compile is not evidence of those behaviors.
+The probes check ordinary-user installation refusal and refusal to use the uninstalled executable for apply, arm, disarm, cleanup, cleanup-task installation, rollback and status. They do not create firewall rules or install TRON. Live blocking, expiry, rollback, installed administrator isolation, scheduling, recovery and authenticated end-to-end review remain unverified. A passing pure harness or refusal test is not evidence of those behaviors.
+
+Build origin is attested using GitHub artifact attestations. The Windows executables remain unsigned; attestations do not supply a Windows-trusted publisher identity or suppress Windows security controls. No paid signing service is configured.
