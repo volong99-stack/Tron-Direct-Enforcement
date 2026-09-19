@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "status": "AUTHORIZED_MIT_SOURCE_PUBLICATION_CANDIDATE",
+  "schemaVersion": 2,
+  "status": "SOURCE_AND_UNSIGNED_DEVELOPER_PREVIEW",
   "allowedFiles": [
     "AssemblyInfo.cs",
     "DISCLOSURE-INVENTORY.md",
@@ -10,7 +10,14 @@
     "TronDirectEnforcer.cs",
     "TronDirectEnforcerPureTests.cs",
     "build.ps1",
-    "config.disabled.example.json"
+    "config.disabled.example.json",
+    ".gitignore",
+    ".github/workflows/developer-preview.yml",
+    "PREVIEW.md",
+    "VALIDATION-PLAN.md",
+    "ci/PreviewTests.cs",
+    "ci/Test-Preview.ps1",
+    "ci/Package-Preview.ps1"
   ],
   "generatedBuildFilesExcluded": true,
   "recursiveDirectoryPublishingAllowed": false,
@@ -19,5 +26,19 @@
   "providerEligibilityEstablished": false,
   "signed": false,
   "productionRuntimeValidated": false,
-  "authenticatedDualReviewIntegrationValidated": false
+  "authenticatedDualReviewIntegrationValidated": false,
+  "previewArchiveFiles": [
+    "TronDirectEnforcer.exe",
+    "TronDirectEnforcerPureTests.exe",
+    "LICENSE",
+    "README.md",
+    "PREVIEW.md",
+    "config.disabled.example.json",
+    "VALIDATION.json"
+  ],
+  "previewReleaseSidecars": [
+    "SHA256SUMS.txt",
+    "attestation.sigstore.json"
+  ],
+  "generatedBuildFilesException": "Only previewArchiveFiles copied by ci/Package-Preview.ps1 after passing CI; raw build directories, logs and receipts stay excluded."
 }
