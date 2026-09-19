@@ -108,8 +108,8 @@ if ($testExitCode -ne 0 -or -not (Test-Path -LiteralPath $testOutput -PathType L
 
 $nativeVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($nativeOutput)
 $testVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($testOutput)
-if ($nativeVersion.FileVersion -ne '0.1.0.0' -or $testVersion.FileVersion -ne '0.1.0.0' -or
-    $nativeVersion.ProductVersion -ne '0.1.0-private-candidate' -or
+if ($nativeVersion.FileVersion -ne '0.1.0.1' -or $testVersion.FileVersion -ne '0.1.0.1' -or
+    $nativeVersion.ProductVersion -ne '0.1.0-dev-preview.1' -or
     $nativeVersion.ProductVersion -ne $testVersion.ProductVersion) {
     throw 'The compiled production/test metadata versions do not match the fixed candidate versions.'
 }
