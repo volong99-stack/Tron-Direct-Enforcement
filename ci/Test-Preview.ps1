@@ -42,11 +42,15 @@ try {
     $stdout = Join-Path $testRoot 'stdout.json'
     $stderr = Join-Path $testRoot 'stderr.txt'
     $process = Start-Process -FilePath (Join-Path $bin 'PreviewTests.exe') -Credential $credentials -LoadUserProfile -WorkingDirectory $bin -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+    # Cache the handle before waiting so Windows PowerShell preserves ExitCode.
+    $null = $process.Handle
     if (-not $process.WaitForExit(120000)) { Stop-Process -Id $process.Id -Force; throw 'Preview test driver timed out.' }
     $process.WaitForExit()
     $reportText = [IO.File]::ReadAllText($stdout).Trim()
     $errorText = [IO.File]::ReadAllText($stderr).Trim()
-    if ($process.ExitCode -ne 0 -or $errorText.Length -ne 0) { throw "Preview tests failed: $errorText" }
+    if ($null -eq $process.ExitCode -or $process.ExitCode -ne 0 -or $errorText.Length -ne 0) {
+        throw "Preview test process failed (exit code '$($process.ExitCode)'): $errorText"
+    }
     $report = $reportText | ConvertFrom-Json
     if ($report.status -ne 'PREVIEW_TESTS_PASSED' -or $report.pureTestsPassed -lt 1 -or
         $report.windowsRefusalTestsPassed -ne 8 -or -not $report.standardUserTokenVerified -or
