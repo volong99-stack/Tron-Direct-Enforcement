@@ -17,7 +17,10 @@
     "VALIDATION-PLAN.md",
     "ci/PreviewTests.cs",
     "ci/Test-Preview.ps1",
-    "ci/Package-Preview.ps1"
+    "ci/Package-Preview.ps1",
+    "LOCAL-ADVISORY.md",
+    "local-review/local-review.mjs",
+    "local-review/local-review.test.mjs"
   ],
   "generatedBuildFilesExcluded": true,
   "recursiveDirectoryPublishingAllowed": false,

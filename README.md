@@ -55,3 +55,7 @@ The developer-preview workflow compiles the exact checked-out source, runs the i
 The probes check ordinary-user installation refusal and refusal to use the uninstalled executable for apply, arm, disarm, cleanup, cleanup-task installation, rollback and status. They do not create firewall rules or install TRON. Live blocking, expiry, rollback, installed administrator isolation, scheduling, recovery and authenticated end-to-end review remain unverified. A passing pure harness or refusal test is not evidence of those behaviors.
 
 Build origin is attested using GitHub artifact attestations. The Windows executables remain unsigned; attestations do not supply a Windows-trusted publisher identity or suppress Windows security controls. No paid signing service is configured.
+
+## Optional local advisory source
+
+[LOCAL-ADVISORY.md](LOCAL-ADVISORY.md) describes the bounded loopback model client. Its explanations have no action authority and do not replace actual Codex/ChatGPT reviews. This source-only addition is not included in the native preview archive and does not change its disabled defaults, signing status or production validation status.
