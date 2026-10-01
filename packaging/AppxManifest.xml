@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  TRON Direct Enforcement — MSIX packaging draft (SignPath route, self-distribution).
-  DRAFT ONLY. Do NOT use for a signed release until every TODO below is resolved
-  and the values are confirmed by Long.
+  TRON Direct Enforcement — MSIX packaging (decided route 2026-10-01: local
+  install on Long's own computers, self-signed certificate).
 
-  TODO-1 (Identity Name): confirm the stable MSIX Identity Name with Long.
-          Candidate seen in repo history: "TronDirectEnforcement" — NOT confirmed.
-  TODO-2 (Publisher): must EXACTLY match the Subject of the SignPath signing
-          certificate (e.g. CN=...). Unknown until the SignPath project is
-          registered and the certificate Subject is provided.
-  TODO-3 (SignPath): register the repo at signpath.io and record the project slug.
+  Identity Name "TronDirectEnforcer": local default, reinstallable; rename if
+  Long chooses a different stable name.
+  Publisher: MUST exactly match the self-signed certificate's Subject
+  (e.g. CN=TRON Local). Update both together if the cert changes.
+
+  SignPath Foundation application was rejected 2026-09-16 (visibility grounds);
+  that route is parked. If a trusted cert is ever used, set Publisher to the
+  cert's full Subject.
 
   Build provenance: fresh build from pinned commit da94e83b950c via build.ps1
   (offline .NET Framework csc.exe, TronDirectEnforcer.exe, /target:winexe).
@@ -25,8 +26,8 @@
   IgnorableNamespaces="uap uap3 mp rescap">
 
   <Identity
-    Name="TODO.IDENTITY.NAME"
-    Publisher="CN=TODO-PUBLISHER-CN"
+    Name="TronDirectEnforcer"
+    Publisher="CN=TRON Local"
     Version="1.0.0.0"
     ProcessorArchitecture="x64" />
 
@@ -34,7 +35,7 @@
 
   <Properties>
     <DisplayName>TRON Direct Enforcement</DisplayName>
-    <PublisherDisplayName>TODO-PUBLISHER-DISPLAY-NAME</PublisherDisplayName>
+    <PublisherDisplayName>TRON Local</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
