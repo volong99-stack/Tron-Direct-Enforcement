@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TRON Direct Enforcement — MSIX packaging draft (SignPath route, self-distribution).
+  DRAFT ONLY. Do NOT use for a signed release until every TODO below is resolved
+  and the values are confirmed by Long.
+
+  TODO-1 (Identity Name): confirm the stable MSIX Identity Name with Long.
+          Candidate seen in repo history: "TronDirectEnforcement" — NOT confirmed.
+  TODO-2 (Publisher): must EXACTLY match the Subject of the SignPath signing
+          certificate (e.g. CN=...). Unknown until the SignPath project is
+          registered and the certificate Subject is provided.
+  TODO-3 (SignPath): register the repo at signpath.io and record the project slug.
+
+  Build provenance: fresh build from pinned commit da94e83b950c via build.ps1
+  (offline .NET Framework csc.exe, TronDirectEnforcer.exe, /target:winexe).
+  The 2026-09-19 preview ZIP must NOT be used as signing input without provenance
+  validation.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 mp rescap">
+
+  <Identity
+    Name="TODO.IDENTITY.NAME"
+    Publisher="CN=TODO-PUBLISHER-CN"
+    Version="1.0.0.0"
+    ProcessorArchitecture="x64" />
+
+  <mp:PhoneIdentity PhoneProductId="00000000-0000-0000-0000-000000000000" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
+
+  <Properties>
+    <DisplayName>TRON Direct Enforcement</DisplayName>
+    <PublisherDisplayName>TODO-PUBLISHER-DISPLAY-NAME</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Capabilities>
+    <!-- Full-trust Win32: firewall COM, ACLs, scheduled tasks, registry. -->
+    <rescap:Capability Name="runFullTrust" />
+    <!-- Elevation: required by the enforcement engine. Self-distribution via
+         SignPath does not need Store approval for restricted capabilities,
+         but the declaration is still required. -->
+    <rescap:Capability Name="allowElevation" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="TronDirectEnforcer" Executable="TronDirectEnforcer.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="TRON Direct Enforcement"
+        Description="TRON Direct Enforcement"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+    </Application>
+  </Applications>
+</Package>
