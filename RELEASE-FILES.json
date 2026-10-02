@@ -6,6 +6,7 @@
     "DISCLOSURE-INVENTORY.md",
     "LICENSE",
     "README.md",
+    "STAGING.md",
     "RELEASE-FILES.json",
     "TronDirectEnforcer.cs",
     "TronDirectEnforcerPureTests.cs",
@@ -17,7 +18,10 @@
     "VALIDATION-PLAN.md",
     "ci/PreviewTests.cs",
     "ci/Test-Preview.ps1",
-    "ci/Package-Preview.ps1"
+    "ci/Package-Preview.ps1",
+    "LOCAL-ADVISORY.md",
+    "local-review/local-review.mjs",
+    "local-review/local-review.test.mjs"
   ],
   "generatedBuildFilesExcluded": true,
   "recursiveDirectoryPublishingAllowed": false,
@@ -34,6 +38,7 @@
     "README.md",
     "PREVIEW.md",
     "config.disabled.example.json",
+    "STAGING.md",
     "VALIDATION.json"
   ],
   "previewReleaseSidecars": [

@@ -9,11 +9,14 @@ The recorded GitHub run compiles both executables with the installed,
 signature-verified Microsoft .NET Framework compiler. It runs the synthetic
 in-memory harness under a temporary standard-user account on a disposable
 GitHub-hosted Windows runner. A separate driver checks that its real Windows
-token is non-administrative and that eight operations refuse to run from the
+token is non-administrative and that thirteen operations refuse to run from the
 uninstalled preview, including rejection of installation by an ordinary user.
 
 The release's `VALIDATION.json` records the exact source commit, run URL, test
-counts, and remaining validation gaps. Check the linked run for success.
+counts, and remaining validation gaps. Candidate 0.1.0.2 also records staging
+case counts and zero firewall operations through the in-memory inert command
+tests. These candidate tests are not a result until executed after code review.
+Check the linked run for success. See STAGING.md for the staging/activation split.
 
 These checks do not validate live network blocking, an installed controller's
 privilege boundary, scheduled cleanup, crash/reboot/update recovery, or genuine

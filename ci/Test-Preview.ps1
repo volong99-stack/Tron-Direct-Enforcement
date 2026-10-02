@@ -53,7 +53,8 @@ try {
     }
     $report = $reportText | ConvertFrom-Json
     if ($report.status -ne 'PREVIEW_TESTS_PASSED' -or $report.pureTestsPassed -lt 1 -or
-        $report.windowsRefusalTestsPassed -ne 8 -or -not $report.standardUserTokenVerified -or
+        $report.stagingTestsPassed -lt 1 -or $report.stagingFirewallOperations -ne 0 -or
+        $report.windowsRefusalTestsPassed -ne 13 -or -not $report.standardUserTokenVerified -or
         $report.firewallRulesCreated -or $report.installed) { throw 'Unexpected preview test report.' }
     $results = Join-Path $repoRoot 'ci-results'
     [void](New-Item -ItemType Directory -Path $results)
