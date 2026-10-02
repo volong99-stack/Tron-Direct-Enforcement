@@ -1,6 +1,6 @@
 # TRON Direct Enforcement
 
-**Experimental MIT-licensed developer preview. Unsigned and not runtime-validated for production.** Public source availability does not establish signing-provider acceptance, verified adoption or reputation, or readiness to protect a computer.
+**Experimental MIT-licensed developer preview. Public preview artifacts remain unsigned; verified local signed deployments are documented below. Not runtime-validated for production.** Public source availability does not establish signing-provider acceptance, verified adoption or reputation, or readiness to protect a computer.
 
 The native adapter accepts an explicit, elevated administrator-controller attestation before adding one narrow outbound Windows firewall rule. The authority is named `ADMIN_CONTROLLER_ATTESTATION`; it is not a cryptographic proof that an AI review occurred. The caller must independently witness a real Codex review and make a separate current ChatGPT controller decision about the exact technical evidence and proposed action. That authenticated end-to-end review integration is not supplied or validated by this standalone source release. The native layer checks the administrator token, pinned controller identity, bound metadata, scope, freshness, replay state and executable identity. It cannot authenticate external transcripts or establish the truth of evidence from its hashes. This project is not affiliated with or endorsed by Microsoft or OpenAI.
 
@@ -12,7 +12,7 @@ Windows firewall rules are path-based. The adapter verifies the current file und
 
 ## Files and build
 
-`RELEASE-FILES.json` is the exact source-file whitelist. `DISCLOSURE-INVENTORY.md` describes what those files disclose. The separate `previewArchiveFiles` list permits only the documented developer-preview archive contents. Raw build receipts/logs, credentials, runtime configuration, deployment data and operating records remain excluded. See [PREVIEW.md](PREVIEW.md) for verification and [VALIDATION-PLAN.md](VALIDATION-PLAN.md) for remaining runtime work.
+`RELEASE-FILES.json` is the exact source-file whitelist. `DISCLOSURE-INVENTORY.md` describes what those files disclose. The separate `previewArchiveFiles` list permits only the documented developer-preview archive contents. Raw build receipts/logs, credentials, runtime configuration, deployment data and operating records remain excluded. The owner-approved local signed-deployment summary below is the only deployment disclosure added here. See [PREVIEW.md](PREVIEW.md) for verification and [VALIDATION-PLAN.md](VALIDATION-PLAN.md) for remaining runtime work.
 
 `build.ps1` uses only the installed Microsoft .NET Framework C# compiler and local framework references. It locates the fixed framework installation under the Windows directory, rejects reparse paths, and requires a valid Microsoft compiler signature and matching compiler identity. It refuses an existing build-output directory. It does not download tools, change execution policy, request elevation, sign files, execute either result, install components, or publish anything.
 
@@ -38,11 +38,34 @@ Use a verified elevated controller session and the exact protected installed exe
 
 This standalone source is licensed under the MIT license in `LICENSE`. Source distribution is limited to `allowedFiles` in `RELEASE-FILES.json`. The separate developer-preview allowance covers only `previewArchiveFiles` and the named release sidecars. Private operating records and all other generated artifacts remain excluded.
 
-No code-signing provider has accepted this project or signed this candidate. Free signing, if pursued, depends on the provider's independent eligibility, project reputation, build verification and release approval requirements. A new public repository and MIT license do not establish eligibility. No paid signing service is required or configured by this source.
+No external code-signing provider has accepted this project or signed this candidate. The local self-signed deployment described below does not establish provider acceptance. Free signing, if pursued, depends on the provider's independent eligibility, project reputation, build verification and release approval requirements. A new public repository and MIT license do not establish eligibility. No paid signing service is required or configured by this source.
 
 ### Code signing policy
 
-There is currently no signing provider, certificate or signed release. Any future signing request must be tied to the exact reviewed source commit and a verifiable build, and a designated project maintainer must explicitly approve that release. Actual maintainer roles and provider attribution will be published only after they are verified. Signing will not be described as proof of runtime safety or effective threat protection.
+There is currently no external signing provider or public signed release. A local self-signed certificate was used for the separately verified deployment below; no certificate or private key is distributed by this repository. Any future signing request must be tied to the exact reviewed source commit and a verifiable build, and a designated project maintainer must explicitly approve that release. Actual maintainer roles and provider attribution will be published only after they are verified. Signing will not be described as proof of runtime safety or effective threat protection.
+
+### Verified local signed deployment — 2026-10-01
+
+This owner-approved summary records local binary identity and file deployment only. It does not establish production readiness, effective network blocking, authenticated dual review, or a public signed release. It makes no new source-to-binary reproducibility claim.
+
+| Field | Verified value |
+| --- | --- |
+| Binary | `TronDirectEnforcer.exe` |
+| SHA-256 | `ABFAB323C66E8248929C51F15316BA792C8205978DD57C48368B878EAF50C979` |
+| Size | 78,176 bytes |
+| File version | `0.1.0.1` |
+| FileDescription | `TRON Direct Enforcement` |
+| Signer subject | `CN=TRON Local` |
+| Signer thumbprint | `5EF39D6D9531E1406802CA13094121FFB6C6D3DB` |
+| QSM (`DESKTOP-QSM1IPD`) | Signed approximately 17:10–17:14 CDT on 2026-10-01; host verification reported Authenticode `Valid`. |
+| R97 (`DESKTOP-R97L6H0`) | Deployed and independently verified at 18:22:04 CDT on 2026-10-01; Authenticode `Valid`, message `Signature verified.`. |
+| Preserved R97 original backup SHA-256 | `753A14F80D927FEFE54EB795AD834CCB6317B463A364B3A350DC29B278778D8F` |
+
+The deployment receipt reported `VERIFIED_COMPLETE` (completion at 18:21:37 CDT); independent host-side verification followed at 18:22:04 CDT (6:22:04 PM). The original backup was preserved and its hash verified.
+
+The successful transfer used ordinary file copying through the existing OneDrive sync, followed by a UAC-approved PowerShell `Copy-Item` on R97. That successful deployment attempt used no antivirus bypass, encoded commands, certificate import, permission changes, broker execution, or Jarvis changes. These statements describe the successful deployment attempt and do not erase earlier failed attempts.
+
+Authenticode `Valid` is the observed status on these two hosts, not a promise of trust on other computers. This documentation update publishes no binary, certificate, private key, raw receipt, runtime configuration, or authorization record. The public preview manifest, disabled defaults, native enforcement code, and release workflow remain unchanged.
 
 ### Privacy
 
@@ -54,7 +77,7 @@ The developer-preview workflow compiles the exact checked-out source, runs the i
 
 The probes check ordinary-user installation refusal and refusal to use the uninstalled executable for apply, arm, disarm, cleanup, cleanup-task installation, rollback and status. They do not create firewall rules or install TRON. Live blocking, expiry, rollback, installed administrator isolation, scheduling, recovery and authenticated end-to-end review remain unverified. A passing pure harness or refusal test is not evidence of those behaviors.
 
-Build origin is attested using GitHub artifact attestations. The Windows executables remain unsigned; attestations do not supply a Windows-trusted publisher identity or suppress Windows security controls. No paid signing service is configured.
+Build origin is attested using GitHub artifact attestations. The public developer-preview Windows executables remain unsigned; attestations do not supply a Windows-trusted publisher identity or suppress Windows security controls. No paid signing service is configured.
 
 ## Optional local advisory source
 
