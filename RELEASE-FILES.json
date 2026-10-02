@@ -6,6 +6,7 @@
     "DISCLOSURE-INVENTORY.md",
     "LICENSE",
     "README.md",
+    "STAGING.md",
     "RELEASE-FILES.json",
     "TronDirectEnforcer.cs",
     "TronDirectEnforcerPureTests.cs",
@@ -37,6 +38,7 @@
     "README.md",
     "PREVIEW.md",
     "config.disabled.example.json",
+    "STAGING.md",
     "VALIDATION.json"
   ],
   "previewReleaseSidecars": [

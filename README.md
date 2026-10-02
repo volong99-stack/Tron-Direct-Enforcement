@@ -10,6 +10,12 @@ There is no incoming directory, untrusted receipt ingestion, signing key or back
 
 Windows firewall rules are path-based. The adapter verifies the current file under a read handle during application, then checks identity again during cleanup. This does not prove the identity of an already running process or permanently bind a firewall rule to file bytes. Native rule readback also does not prove actual network blocking; controlled traffic tests are required.
 
+## Inert staging candidate
+
+Candidate `0.1.0.2` adds a separate bounded staging journal. `init-staging`, `stage`, `show-stage` and `cancel-stage` return before native firewall initialization and never change executable pins or active authorizations. A hash-only target remains inert without a local executable. See [STAGING.md](STAGING.md) for exact schemas, failure handling and deployment gates.
+
+New blocks require `activate` with a fresh, separately recorded Long approval, a matching unexpired staged record and all existing executable, review, controller, replay and health checks. The old `apply` command rejects new creation; version 1 authorizations remain readable for cleanup and rollback. The operational Codex/ChatGPT review requirements remain unchanged. Staged evidence and privileged approval fields are assertions, not authenticated proof of a chat or a threat. This candidate is unbuilt and undeployed pending both code reviews and full tests; the signed `0.1.0.1` deployment documented below is a different artifact.
+
 ## Files and build
 
 `RELEASE-FILES.json` is the exact source-file whitelist. `DISCLOSURE-INVENTORY.md` describes what those files disclose. The separate `previewArchiveFiles` list permits only the documented developer-preview archive contents. Raw build receipts/logs, credentials, runtime configuration, deployment data and operating records remain excluded. The owner-approved local signed-deployment summary below is the only deployment disclosure added here. See [PREVIEW.md](PREVIEW.md) for verification and [VALIDATION-PLAN.md](VALIDATION-PLAN.md) for remaining runtime work.
@@ -18,7 +24,7 @@ Windows firewall rules are path-based. The adapter verifies the current file und
 
 When local policy permits ordinary PowerShell script execution, invoke it from its directory with `./build.ps1`. If policy refuses the script or generated programs, stop and use a separately approved build/validation environment. Do not weaken or bypass application-control or script policies to run this candidate.
 
-Production output uses `/target:winexe` so launching it does not create a console window. The pure harness uses `/target:exe`. Both include the same `AssemblyInfo.cs` and file/assembly version `0.1.0.1`, with informational version `0.1.0-dev-preview.1`. Version text does not establish passing tests; inspect the release's exact commit and validation summary. The script records compiler/source/output hashes locally under `build/`. Those generated records are not approved for publication.
+Production output uses `/target:winexe` so launching it does not create a console window. The pure harness uses `/target:exe`. Both include the same `AssemblyInfo.cs` and candidate file/assembly version `0.1.0.2`, with informational version `0.1.0-dev-preview.2`. Version text does not establish passing tests; inspect the release's exact commit and validation summary. The script records compiler/source/output hashes locally under `build/`. Those generated records are not approved for publication.
 
 The pure-test harness uses fictional identifiers and synthetic in-memory evidence. A successful build is not a passing test result, and a passing pure harness would not establish native privilege isolation, scheduling, traffic blocking, expiry, crash recovery or production readiness. Run the pure harness without elevation in a permitted test environment; do not describe its fabricated review fixtures as actual model confirmations.
 
@@ -73,9 +79,9 @@ This standalone native program implements no telemetry or network-upload client.
 
 ## Validation status
 
-The developer-preview workflow compiles the exact checked-out source, runs the in-memory harness as a standard Windows user, and runs eight native process refusal probes from an uninstalled directory. A passing run records the observed test counts in the preview's `VALIDATION.json`. Consult that file and its linked successful GitHub run for the specific release; workflow presence alone is not evidence that tests passed.
+The developer-preview workflow compiles the exact checked-out source, runs the in-memory harness as a standard Windows user, and runs thirteen native process refusal probes from an uninstalled directory. A passing run records the observed test counts in the preview's `VALIDATION.json`. Consult that file and its linked successful GitHub run for the specific release; workflow presence alone is not evidence that tests passed.
 
-The probes check ordinary-user installation refusal and refusal to use the uninstalled executable for apply, arm, disarm, cleanup, cleanup-task installation, rollback and status. They do not create firewall rules or install TRON. Live blocking, expiry, rollback, installed administrator isolation, scheduling, recovery and authenticated end-to-end review remain unverified. A passing pure harness or refusal test is not evidence of those behaviors.
+The probes check ordinary-user installation refusal and refusal to use the uninstalled executable for apply, arm, disarm, cleanup, cleanup-task installation, rollback, status, staging initialization/creation/read/cancellation and activation. They do not create firewall rules or install TRON. The pure harness separately reports staging cases and zero firewall operations through the production inert dispatcher. Live blocking, expiry, rollback, installed administrator isolation, scheduling, recovery and authenticated end-to-end review remain unverified. A passing pure harness or refusal test is not evidence of those behaviors.
 
 Build origin is attested using GitHub artifact attestations. The public developer-preview Windows executables remain unsigned; attestations do not supply a Windows-trusted publisher identity or suppress Windows security controls. No paid signing service is configured.
 

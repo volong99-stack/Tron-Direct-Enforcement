@@ -19,7 +19,9 @@ internal static class TronDirectEnforcerPureTests {
         DateTime issued=DateTime.UtcNow.AddMinutes(-1);
         Dictionary<string,object> rule=new Dictionary<string,object>{{"action","BLOCK"},{"deviceId",Device},{"direction","OUTBOUND"},{"protocol","ANY"},{"remoteAddress","1.1.1.1"},{"programPath",@"C:\Test\Controlled.exe"},{"programSha256",AbcHash},{"scope","SINGLE_DEVICE"}};
         Dictionary<string,object> p=new Dictionary<string,object>{{"schemaVersion",1},{"kind","TRON_DIRECT_BLOCK_ATTESTATION"},{"authority","ADMIN_CONTROLLER_ATTESTATION"},{"category","MALWARE_C2"},{"confirmationStatus","CONFIRMED_TECHNICAL_THREAT"},{"deviceId",Device},{"candidateDigest",H("invented offline candidate")},{"ruleHash",H(TronDirectEnforcer.Json.Stringify(rule))},{"evidenceHash",H("invented offline evidence set")},{"localEvidenceHash",H("invented local fixture")},{"threatIntelEvidenceHash",H("invented threat fixture")},{"policyHash",H("fixture policy")},{"issuedAt",Stamp(issued)},{"expiresAt",Stamp(issued.AddMinutes(5))},{"nonce",H("fixture nonce")},{"rule",rule}};
-        string context=TronDirectEnforcer.ContextHash(p);p.Add("attestationContextHash",context);
+        p["schemaVersion"]=2L;p.Add("stageId",H("fixture stage id"));p.Add("stageHash",H("fixture stage hash"));
+        p.Add("longApproval",new Dictionary<string,object>{{"approver","Long"},{"decision","APPROVE_ACTIVATE"},{"approvalId",H("fixture owner approval")},{"approvedAt",Stamp(issued.AddSeconds(-10))}});
+        string context=TronDirectEnforcer.ContextHash(p);p.Add("attestationContextHash",context);Obj(p["longApproval"]).Add("contextHash",context);
         p.Add("reviews",new Dictionary<string,object>{
             {"codex",new Dictionary<string,object>{{"channel","CODEX"},{"witnessed",true},{"decision","CONFIRM_BLOCK"},{"invocationId","offline-test-invocation"},{"receiptHash",H("fixture receipt")},{"contextHash",context},{"completedAt",Stamp(issued.AddSeconds(-1))}}},
             {"chatgptController",new Dictionary<string,object>{{"channel","CURRENT_CHATGPT_CONTROLLER"},{"witnessed",true},{"decision","CONFIRM_BLOCK"},{"decisionHash",H("fixture controller decision")},{"contextHash",context},{"completedAt",Stamp(issued.AddSeconds(-1))}}}
@@ -71,6 +73,19 @@ internal static class TronDirectEnforcerPureTests {
         Rejects(delegate{Validate(p,true);},"REVIEW_CONTEXT_BINDING_MISMATCH","changed nonce requires new review binding");
         p=Fixture();p["category"]="MANIPULATIVE_IDEAS";
         Rejects(delegate{Validate(p,true);},"CONFIRMED_TECHNICAL_CATEGORY_REQUIRED","content or idea filtering is unsupported");
+        p=Fixture();Obj(p["longApproval"])["decision"]="APPROVE_STAGE_ONLY";
+        Rejects(delegate{Validate(p,true);},"EXPLICIT_LONG_ACTIVATION_APPROVAL_REQUIRED","stage approval is never activation approval");
+        p=Fixture();Obj(p["longApproval"])["approvedAt"]=Stamp(DateTime.UtcNow.AddMinutes(-10));
+        Rejects(delegate{Validate(p,true);},"FRESH_LONG_ACTIVATION_APPROVAL_REQUIRED","old Long approval is refused");
+        p=Fixture();Obj(p["longApproval"])["contextHash"]=H("wrong approval context");
+        Rejects(delegate{Validate(p,true);},"LONG_APPROVAL_CONTEXT_MISMATCH","Long approval must bind the complete activation context");
+        p=Fixture();p["stageHash"]=H("different staged record");
+        Rejects(delegate{Validate(p,true);},"REVIEW_CONTEXT_BINDING_MISMATCH","changed staging hash invalidates both reviews");
+        p=Fixture();p["schemaVersion"]=1L;p.Remove("stageId");p.Remove("stageHash");p.Remove("longApproval");
+        string historicalContext=TronDirectEnforcer.ContextHash(p);p["attestationContextHash"]=historicalContext;
+        Obj(Obj(p["reviews"])["codex"])["contextHash"]=historicalContext;Obj(Obj(p["reviews"])["chatgptController"])["contextHash"]=historicalContext;
+        Check(Validate(p,false)!=null,"legacy v1 records remain readable for cleanup and rollback");
+        Rejects(delegate{Validate(p,true);},"STAGED_ACTIVATION_REQUIRED","legacy v1 cannot authorize a new block");
         p=Fixture();Obj(config.GetValue(null))["policyHash"]=H("changed policy");
         Rejects(delegate{Validate(p,true);},"POLICY_MISMATCH","new apply rejects old policy");
         Check(Validate(p,false)!=null,"historical policy change does not strand exact cleanup");
@@ -102,6 +117,136 @@ internal static class TronDirectEnforcerPureTests {
         Check(TronDirectEnforcer.ActiveRemovalReason(false,now,now,"1.1.1.1",new List<object>())=="authorization expired","expiry remains exclusive at the exact deadline");
         Check(TronDirectEnforcer.ActiveRemovalReason(true,later,now,"1.1.1.1",new List<object>())=="clock unavailable or regressed; remove exact own rule","clock failure still requires exact active-rule removal");
     }
+    // The SAME inert dispatcher used by Main runs against memory-only storage.
+    // A poison firewall object rejects/counts any attempted policy access.
+    // Native Main's early-return boundary is additionally reviewed in the diff;
+    // installed before/after firewall snapshots remain a separate deployment gate.
+    public sealed class PoisonFirewall {
+        public int Accesses;
+        public object Rules {get{Accesses++;throw new Exception("FIREWALL_ACCESS_FROM_STAGING");}}
+    }
+    sealed class MemoryStagingStore : TronDirectEnforcer.IStagingStore {
+        public bool Initialized;
+        public string Checkpoint;
+        public List<string> Lines=new List<string>();
+        public int Writes;
+        public string Fail;
+        public bool IsInitialized {get{return Initialized;}}
+        public string ReadCheckpoint(){return Checkpoint;}
+        public List<string> ReadLines(){return new List<string>(Lines);}
+        public void Initialize(string checkpoint){if(Initialized)throw new Reject("STAGING_ALREADY_INITIALIZED");Checkpoint=checkpoint;Initialized=true;Writes++;}
+        public void Commit(string expected,string checkpoint,string line){
+            if(Checkpoint!=expected)throw new Reject("STAGING_CHECKPOINT_CHANGED");
+            if(Fail=="before")throw new IOException("stage write unavailable");
+            Checkpoint=checkpoint;Writes++;
+            if(Fail=="checkpoint")throw new IOException("interrupted after checkpoint");
+            Lines.Add(line);Writes++;
+            if(Fail=="append")throw new IOException("interrupted after append");
+        }
+    }
+    static Dictionary<string,object> RoundTrip(Dictionary<string,object> p){return Obj(TronDirectEnforcer.Json.Parse(TronDirectEnforcer.Json.Stringify(p)));}
+    static Dictionary<string,object> StageFixture(DateTime now){return RoundTrip(new Dictionary<string,object>{
+        {"schemaVersion",1},{"kind","TRON_STAGED_TARGET"},{"authority","NONE"},{"stageId",H("inert fixture stage")},
+        {"deviceId",Device},{"machineGuid","22222222-2222-4222-8222-222222222222"},{"host","TEST-HOST"},{"policyHash",H("fixture policy")},
+        {"programSha256",AbcHash},{"remoteAddress","1.1.1.1"},{"direction","OUTBOUND"},{"protocol","ANY"},{"scope","SINGLE_DEVICE"},
+        {"category","MALWARE_C2"},{"reason","Synthetic inert fixture; not a real threat or approval"},{"evidenceReferences",new List<object>{"https://example.org/fixture"}},
+        {"stagingApproval",new Dictionary<string,object>{{"approver","Long"},{"decision","APPROVE_STAGE_ONLY"},{"approvedAt",Stamp(now.AddMinutes(-3))},{"approvalReference","SYNTHETIC TEST ONLY"}}},
+        {"createdAt",Stamp(now.AddMinutes(-2))},{"expiresAt",Stamp(now.AddMinutes(20))}
+    });}
+    static Dictionary<string,object> StagingConfig(){return new Dictionary<string,object>{{"deviceId",Device},{"machineGuid","22222222-2222-4222-8222-222222222222"},{"policyHash",H("fixture policy")},{"protectedAddresses",new List<object>()}};}
+    static Dictionary<string,object> StageCommand(string command,string input,MemoryStagingStore store,Dictionary<string,object> config,DateTime now){return TronDirectEnforcer.RunStagingCommand(command,input,store,config,"TEST-HOST",now);}
+    static MemoryStagingStore StagedStore(DateTime now,Dictionary<string,object> config){
+        MemoryStagingStore store=new MemoryStagingStore();StageCommand("init-staging",null,store,config,now);StageCommand("stage",TronDirectEnforcer.Json.Stringify(StageFixture(now)),store,config,now);return store;
+    }
+    static void StagingTests(){
+        DateTime now=DateTime.UtcNow;Dictionary<string,object> config=StagingConfig(),target=StageFixture(now);
+        string id=(string)target["stageId"],raw=TronDirectEnforcer.Json.Stringify(target);
+        FieldInfo policy=typeof(TronDirectEnforcer).GetField("Policy",BindingFlags.NonPublic|BindingFlags.Static);
+        object previousPolicy=policy.GetValue(null);PoisonFirewall poison=new PoisonFirewall();policy.SetValue(null,poison);
+        try{
+            foreach(string command in new[]{"init-staging","stage","show-stage","cancel-stage"})Check(TronDirectEnforcer.IsStagingCommand(command),command+" is classified inert before native policy initialization");
+            Check(!TronDirectEnforcer.IsStagingCommand("activate")&&!TronDirectEnforcer.IsStagingCommand("apply"),"activation and legacy apply cannot enter inert dispatcher");
+            MemoryStagingStore store=new MemoryStagingStore();
+            Rejects(delegate{StageCommand("stage",raw,store,config,now);},"STAGING_NOT_INITIALIZED","missing staging journal is never auto-created");
+            StageCommand("init-staging",null,store,config,now);
+            Rejects(delegate{StageCommand("init-staging",null,store,config,now);},"STAGING_ALREADY_INITIALIZED","existing staging history cannot be reinitialized");
+            Dictionary<string,object> result=StageCommand("stage",raw,store,config,now);
+            Check((string)result["status"]=="STAGED"&&(string)result["authority"]=="NONE"&&!(bool)result["firewallChanged"]&&poison.Accesses==0,"staging completes with zero firewall accesses or mutations");
+            Check((string)result["programBinding"]=="UNBOUND_HASH_ONLY"&&store.Lines.Count==1,"absent executable stays hash-only; no program pin is written");
+            int writes=store.Writes;
+            result=StageCommand("show-stage",id,store,config,now);
+            Check(store.Writes==writes&&poison.Accesses==0&&(string)result["status"]=="STAGED","show-stage is read-only with zero firewall access");
+            Rejects(delegate{StageCommand("stage",raw,store,config,now);},"STAGE_ID_ALREADY_USED","duplicate stage ID rejects rather than overwrite");
+            result=StageCommand("show-stage",id,store,config,now.AddHours(1));
+            Check((string)result["status"]=="EXPIRED"&&store.Writes==writes,"expiry is derived without journal or firewall mutation");
+            result=StageCommand("cancel-stage",id,store,config,now.AddSeconds(1));
+            Check((string)result["status"]=="CANCELLED"&&poison.Accesses==0,"cancellation changes only staging journal");
+            Rejects(delegate{StageCommand("cancel-stage",id,store,config,now.AddSeconds(2));},"STAGE_NOT_PENDING","cancel cannot be replayed");
+            Rejects(delegate{StageCommand("activate",raw,store,config,now);},"NOT_AN_INERT_STAGING_COMMAND","inert dispatcher cannot activate");
+            Rejects(delegate{StageCommand("apply",raw,store,config,now);},"NOT_AN_INERT_STAGING_COMMAND","inert dispatcher cannot apply");
+
+            foreach(string field in new[]{"programPath","reviews","longApproval"}){
+                Dictionary<string,object> bad=StageFixture(now);bad.Add(field,"not allowed");
+                Rejects(delegate{StageCommand("stage",TronDirectEnforcer.Json.Stringify(bad),store,config,now.AddSeconds(2));},"EXACT_SCHEMA_KEYS_REQUIRED","staging never accepts authority field "+field);
+            }
+            foreach(string field in new[]{"deviceId","machineGuid","host"}){
+                Dictionary<string,object> bad=StageFixture(now);bad[field]=field=="host"?"OTHER-HOST":"33333333-3333-4333-8333-333333333333";
+                Rejects(delegate{TronDirectEnforcer.ValidateStagedTarget(bad,config,"TEST-HOST",now,true);},"STAGING_HOST_MISMATCH","stage bound to "+field);
+            }
+            Dictionary<string,object> invalid=StageFixture(now);invalid["authority"]="ADMIN_CONTROLLER_ATTESTATION";
+            Rejects(delegate{TronDirectEnforcer.ValidateStagedTarget(invalid,config,"TEST-HOST",now,true);},"STAGING_SCHEMA_AUTHORITY","stage cannot assert enforcement authority");
+            invalid=StageFixture(now);invalid["expiresAt"]=Stamp(now.AddDays(2));
+            Rejects(delegate{TronDirectEnforcer.ValidateStagedTarget(invalid,config,"TEST-HOST",now,true);},"STAGING_TTL_INVALID","stage lifetime bounded to 24 hours");
+            invalid=StageFixture(now);invalid["remoteAddress"]="192.0.2.1";
+            Rejects(delegate{TronDirectEnforcer.ValidateStagedTarget(invalid,config,"TEST-HOST",now,true);},"PRIVATE_RESERVED_OR_PROTECTED_ADDRESS","staging preserves reserved-address exclusion");
+            invalid=StageFixture(now);invalid["programSha256"]=AbcHash.ToUpperInvariant();
+            Rejects(delegate{TronDirectEnforcer.ValidateStagedTarget(invalid,config,"TEST-HOST",now,true);},"SHA256_LOWERCASE_HEX_REQUIRED","staging requires an exact canonical hash");
+            invalid=StageFixture(now);invalid["evidenceReferences"]=new List<object>{"file:///C:/fixture.exe"};
+            Rejects(delegate{TronDirectEnforcer.ValidateStagedTarget(invalid,config,"TEST-HOST",now,true);},"STAGING_HTTPS_REFERENCE_REQUIRED","evidence references cannot be local execution paths");
+            Dictionary<string,object> changedConfig=StagingConfig();Obj(changedConfig)["policyHash"]=H("changed policy");
+            Rejects(delegate{TronDirectEnforcer.ValidateStagedTarget(target,changedConfig,"TEST-HOST",now,true);},"STAGING_POLICY_MISMATCH","old policy cannot create a new stage");
+
+            store=StagedStore(now,config);store.Lines.Clear();
+            Rejects(delegate{StageCommand("show-stage",id,store,config,now);},"STAGING_HISTORY_COUNT_MISMATCH","truncated journal rejected against checkpoint");
+            store=StagedStore(now,config);store.Lines[0]=store.Lines[0].Replace("Synthetic inert fixture","Altered inert fixture");
+            Rejects(delegate{StageCommand("show-stage",id,store,config,now);},"STAGING_CREATE_INVALID","modified target rejected against its digest");
+            store=StagedStore(now,config);Dictionary<string,object> ev=Obj(TronDirectEnforcer.Json.Parse(store.Lines[0]));ev["previousHash"]=H("wrong predecessor");store.Lines[0]=TronDirectEnforcer.Json.Stringify(ev);
+            Rejects(delegate{StageCommand("show-stage",id,store,config,now);},"STAGING_CHAIN_MISMATCH","broken hash-chain predecessor rejects");
+            store=StagedStore(now,config);Dictionary<string,object> cp=Obj(TronDirectEnforcer.Json.Parse(store.Checkpoint));cp["headHash"]=H("other head");store.Checkpoint=TronDirectEnforcer.Json.Stringify(cp);
+            Rejects(delegate{StageCommand("show-stage",id,store,config,now);},"STAGING_HEAD_MISMATCH","checkpoint head must match exact final event");
+            store=StagedStore(now,config);
+            Rejects(delegate{StageCommand("cancel-stage",id,store,config,now.AddMinutes(-1));},"STAGING_CLOCK_REGRESSED","clock regression blocks a staging mutation");
+            foreach(string failure in new[]{"before","checkpoint","append"}){
+                store=new MemoryStagingStore();StageCommand("init-staging",null,store,config,now);store.Fail=failure;
+                Rejects(delegate{StageCommand("stage",raw,store,config,now);},failure=="before"?"stage write unavailable":failure=="checkpoint"?"interrupted after checkpoint":"interrupted after append","interrupted "+failure+" surfaces failure");
+                Check(poison.Accesses==0,"interrupted "+failure+" never touches firewall");store.Fail=null;
+                if(failure=="checkpoint")Rejects(delegate{StageCommand("show-stage",id,store,config,now);},"STAGING_HISTORY_COUNT_MISMATCH","checkpoint-only commit fails closed");
+                else if(failure=="append")Check((string)StageCommand("show-stage",id,store,config,now)["status"]=="STAGED","fully appended inert record can be inspected after response loss");
+                else Check(store.Lines.Count==0,"precommit failure leaves journal empty");
+            }
+            store=StagedStore(now,config);TronDirectEnforcer.StagedTarget staged=TronDirectEnforcer.ReadStaging(store,config,"TEST-HOST").Targets[id];
+            Dictionary<string,object> activation=RoundTrip(Fixture());activation["stageId"]=id;activation["stageHash"]=staged.Hash;activation["candidateDigest"]=staged.Hash;
+            TronDirectEnforcer.CheckStagedActivation(staged,activation,config,"TEST-HOST",now);Check(true,"matching stage binds a separate activation candidate; no authority granted by this pure check");
+            Dictionary<string,object> badActivation=RoundTrip(activation);badActivation["stageHash"]=H("other stage");
+            Rejects(delegate{TronDirectEnforcer.CheckStagedActivation(staged,badActivation,config,"TEST-HOST",now);},"ACTIVATION_STAGE_BINDING_MISMATCH","activation must match exact stage digest");
+            badActivation=RoundTrip(activation);Obj(badActivation["rule"])["remoteAddress"]="8.8.8.8";
+            Rejects(delegate{TronDirectEnforcer.CheckStagedActivation(staged,badActivation,config,"TEST-HOST",now);},"ACTIVATION_TARGET_MISMATCH","activation cannot broaden destination");
+            badActivation=RoundTrip(activation);Obj(badActivation["rule"])["programSha256"]=H("other executable");
+            Rejects(delegate{TronDirectEnforcer.CheckStagedActivation(staged,badActivation,config,"TEST-HOST",now);},"ACTIVATION_TARGET_MISMATCH","activation cannot substitute executable hash");
+            badActivation=RoundTrip(activation);Obj(badActivation["longApproval"])["approvedAt"]=target["createdAt"];
+            Rejects(delegate{TronDirectEnforcer.CheckStagedActivation(staged,badActivation,config,"TEST-HOST",now);},"NEW_LONG_APPROVAL_AFTER_STAGING_REQUIRED","original stage approval cannot activate");
+            badActivation=RoundTrip(activation);badActivation["expiresAt"]=Stamp(now.AddHours(1));
+            Rejects(delegate{TronDirectEnforcer.CheckStagedActivation(staged,badActivation,config,"TEST-HOST",now);},"STAGE_EXPIRED_OR_ACTIVATION_OUTLIVES_STAGE","activation expiry cannot outlive stage");
+            Rejects(delegate{TronDirectEnforcer.CheckStagedActivation(staged,activation,config,"TEST-HOST",now.AddHours(1));},"STAGE_EXPIRED_OR_ACTIVATION_OUTLIVES_STAGE","expired stage cannot activate");
+            foreach(string phase in new[]{"CANCELLED","CONSUMED"}){staged.Phase=phase;Rejects(delegate{TronDirectEnforcer.CheckStagedActivation(staged,activation,config,"TEST-HOST",now);},"STAGE_NOT_PENDING",phase+" stage cannot activate or replay");}
+            TronDirectEnforcer.ConsumeStagedActivation(store,activation,config,"TEST-HOST",now.AddSeconds(1));
+            result=StageCommand("show-stage",id,store,config,now.AddSeconds(1));
+            Check((string)result["status"]=="CONSUMED"&&(string)result["activationNonce"]==(string)activation["nonce"]&&poison.Accesses==0,"consumption durably binds nonce without touching firewall");
+            Rejects(delegate{TronDirectEnforcer.ConsumeStagedActivation(store,activation,config,"TEST-HOST",now.AddSeconds(1));},"STAGE_NOT_PENDING","consumed stage cannot replay even after process reload");
+            Rejects(delegate{StageCommand("cancel-stage",id,store,config,now.AddSeconds(1));},"STAGE_NOT_PENDING","stage cancellation is not firewall rollback");
+            Check(poison.Accesses==0,"all staging paths and rejection cases completed with zero firewall operations");
+        }finally{policy.SetValue(null,previousPolicy);}
+    }
     static void Check(bool condition,string name){if(!condition)throw new Exception("FAILED:"+name);passed++;}
     static void Rejects(Action action,string expected,string name){
         try{action();}catch(Exception e){while(e is TargetInvocationException&&e.InnerException!=null)e=e.InnerException;if(!e.Message.StartsWith(expected,StringComparison.Ordinal))throw new Exception("FAILED:"+name+":"+e.Message);passed++;return;}
@@ -111,6 +256,7 @@ internal static class TronDirectEnforcerPureTests {
         try{
             DirectAuthorityTests();
             HistoryAndProtectionTests();
+            int beforeStaging=passed;StagingTests();int stagingPassed=passed-beforeStaging;
             bool enabled=false;string order="";
             TronDirectEnforcer.CommitArming(delegate{order+="I";},delegate{enabled=true;order+="E";},delegate{order+="A";},delegate{enabled=false;order+="D";});
             Check(enabled&&order=="IEA","successful arming commits in order");
@@ -154,7 +300,7 @@ internal static class TronDirectEnforcerPureTests {
             using(MemoryStream original=new MemoryStream(Encoding.UTF8.GetBytes("abc"))){Rejects(delegate{TronDirectEnforcer.VerifyProgramHash(original,AbcHash.ToUpperInvariant());},"SHA256_LOWERCASE_HEX_REQUIRED","noncanonical hash pin rejects");}
             using(OversizeStream huge=new OversizeStream()){Rejects(delegate{TronDirectEnforcer.VerifyProgramHash(huge,AbcHash);},"PROGRAM_SIZE_INVALID","oversize program rejects before hashing");}
 
-            Console.WriteLine("{\"status\":\"PURE_TESTS_PASSED\",\"passed\":"+passed+",\"nativeOperations\":false}");return 0;
+            Console.WriteLine("{\"status\":\"PURE_TESTS_PASSED\",\"passed\":"+passed+",\"stagingTestsPassed\":"+stagingPassed+",\"stagingFirewallOperations\":0,\"nativeOperations\":false}");return 0;
         }catch(Exception e){Console.WriteLine("PURE_TEST_FAILURE:"+e.Message);return 1;}
     }
     sealed class OversizeStream:MemoryStream {public override long Length{get{return 536870913;}}}

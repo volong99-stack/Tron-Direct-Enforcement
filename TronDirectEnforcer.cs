@@ -34,6 +34,8 @@ internal static class TronDirectEnforcer {
     static readonly string StateRoot = Path.Combine(Root, "state");
     static readonly string ClockPath = Path.Combine(Root, "clock-high-water.json");
     static readonly string HistoryPath = Path.Combine(Root, "history-high-water.json");
+    static readonly string StageJournalPath = Path.Combine(Root, "staged-targets.jsonl");
+    static readonly string StageCheckpointPath = Path.Combine(Root, "staging-high-water.json");
     static readonly string Self = Path.GetFullPath(Assembly.GetExecutingAssembly().Location);
     static readonly string Exe = Path.Combine(Root, ExeName);
     static Dictionary<string,object> Config;
@@ -45,7 +47,7 @@ internal static class TronDirectEnforcer {
     [STAThread]
     static int Main(string[] args) {
         try {
-            if(args.Length<1)throw new Reject("USAGE: install CONFIG | install-cleanup | arm | disarm | status | inspect BASE64 | apply BASE64 | cleanup | rollback NONCE");
+            if(args.Length<1)throw new Reject("USAGE: install CONFIG | install-cleanup | arm | disarm | status | init-staging | stage JSON_FILE | show-stage ID | cancel-stage ID | inspect BASE64 | activate JSON_FILE | cleanup | rollback NONCE");
             string command=args[0];
             if(command=="install"){NeedAdmin();NeedArgs(args,2);Install(args[1]);return 0;}
             NeedInstalled();
@@ -57,8 +59,23 @@ internal static class TronDirectEnforcer {
             using(FileStream gate=new FileStream(Path.Combine(Root,"operation.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)){
                 Config=Object(Json.Parse(ReadBounded(Path.Combine(Root,"config.json"))));CheckConfig(Config);NeedMachine();
                 if(command!="cleanup")NeedController();
+                // This branch returns BEFORE any firewall COM object, cleanup,
+                // authorization ledger or executable identity is accessed.
+                if(IsStagingCommand(command)){
+                    NeedArgs(args,command=="init-staging"?1:2);
+                    string input=command=="stage"?ReadBounded(args[1]):args.Length==2?args[1]:null;
+                    NeedClockHealthy(false);
+                    Print(RunStagingCommand(command,input,new NativeStagingStore(),Config,Environment.MachineName,Now));return 0;
+                }
+                // Legacy records remain readable for cleanup, never reusable
+                // as new authority without staged activation and Long approval.
+                if(command=="apply")throw new Reject("USE_ACTIVATE_WITH_FRESH_LONG_APPROVAL");
                 if(command=="inspect"){
                     NeedArgs(args,2);Authorization a=VerifyAttestation(DecodeArgument(args[1]),true);NeedClockHealthy(false);
+                    Dictionary<string,object> p=Object(Json.Parse(a.Attestation));
+                    StagingHistory h=ReadStaging(new NativeStagingStore(),Config,Environment.MachineName);
+                    string id=Str(p,"stageId");if(!h.Targets.ContainsKey(id))throw new Reject("STAGE_NOT_FOUND");
+                    CheckStagedActivation(h.Targets[id],p,Config,Environment.MachineName,Now);
                     using(FileStream program=CheckProgram(a.Program,a.ProgramSha256)){
                         Print(new Dictionary<string,object>{{"status","VALID_ADMIN_ATTESTATION_NO_FIREWALL_CHANGE"},{"authority","ADMIN_CONTROLLER_ATTESTATION"},{"nonce",a.Nonce},{"deviceId",a.Device},{"expiresAt",Stamp(a.Expires)}});
                     }
@@ -70,7 +87,7 @@ internal static class TronDirectEnforcer {
                 if(command=="rollback"){NeedArgs(args,2);Rollback(args[1]);return 0;}
                 if(command=="disarm"){NeedArgs(args,1);Disarm();return 0;}
                 if(command=="arm"){NeedArgs(args,1);Arm();return 0;}
-                if(command=="apply"){NeedArgs(args,2);RunAttested(DecodeArgument(args[1]));return 0;}
+                if(command=="activate"){NeedArgs(args,2);ActivateStaged(ReadBounded(args[1]));return 0;}
                 throw new Reject("UNKNOWN_COMMAND");
             }
         }catch(Exception e){
@@ -219,8 +236,11 @@ internal static class TronDirectEnforcer {
     }
     static Authorization VerifyAttestation(string raw,bool current) {
         Dictionary<string,object> p=Object(Json.Parse(raw));if(Json.Stringify(p)!=raw)throw new Reject("CANONICAL_ATTESTATION_REQUIRED");
-        Keys(p,"schemaVersion","kind","authority","category","confirmationStatus","deviceId","candidateDigest","ruleHash","evidenceHash","localEvidenceHash","threatIntelEvidenceHash","policyHash","attestationContextHash","issuedAt","expiresAt","nonce","reviews","rule");
-        if(Int(p,"schemaVersion")!=1||Str(p,"kind")!="TRON_DIRECT_BLOCK_ATTESTATION"||Str(p,"authority")!="ADMIN_CONTROLLER_ATTESTATION")throw new Reject("ATTESTATION_AUTHORITY_MISMATCH");
+        int version=Int(p,"schemaVersion");
+        string[] fields={"schemaVersion","kind","authority","category","confirmationStatus","deviceId","candidateDigest","ruleHash","evidenceHash","localEvidenceHash","threatIntelEvidenceHash","policyHash","attestationContextHash","issuedAt","expiresAt","nonce","reviews","rule"};
+        Keys(p,version==2?fields.Concat(new[]{"stageId","stageHash","longApproval"}).ToArray():fields);
+        if((version!=1&&version!=2)||Str(p,"kind")!="TRON_DIRECT_BLOCK_ATTESTATION"||Str(p,"authority")!="ADMIN_CONTROLLER_ATTESTATION")throw new Reject("ATTESTATION_AUTHORITY_MISMATCH");
+        if(current&&version!=2)throw new Reject("STAGED_ACTIVATION_REQUIRED");
         if(!new[]{"MALWARE_C2","PHISHING","EXFILTRATION"}.Contains(Str(p,"category"))||Str(p,"confirmationStatus")!="CONFIRMED_TECHNICAL_THREAT")throw new Reject("CONFIRMED_TECHNICAL_CATEGORY_REQUIRED");
         Authorization a=new Authorization();a.Attestation=raw;a.Device=Str(p,"deviceId");Uuid(a.Device);
         if(a.Device!=Str(Config,"deviceId"))throw new Reject("WRONG_DEVICE");
@@ -231,6 +251,17 @@ internal static class TronDirectEnforcer {
         if(a.Expires<=a.Issued||(a.Expires-a.Issued).TotalSeconds>3600)throw new Reject("TTL_INVALID");
         if(current&&(a.Expires-a.Issued).TotalSeconds>Int(Config,"maxAuthorizationSeconds"))throw new Reject("POLICY_TTL_EXCEEDED");
         if(current&&(a.Issued>Now||a.Expires<=Now||a.Issued<=Now.AddHours(-1)))throw new Reject("ATTESTATION_NOT_CURRENT");
+        if(version==2){
+            Hash(Str(p,"stageId"));Hash(Str(p,"stageHash"));
+            Dictionary<string,object> approval=Object(p["longApproval"]);
+            Keys(approval,"approver","decision","approvalId","approvedAt","contextHash");
+            if(Str(approval,"approver")!="Long"||Str(approval,"decision")!="APPROVE_ACTIVATE")throw new Reject("EXPLICIT_LONG_ACTIVATION_APPROVAL_REQUIRED");
+            Hash(Str(approval,"approvalId"));Hash(Str(approval,"contextHash"));
+            DateTime approved=Date(Str(approval,"approvedAt"));
+            if(approved>a.Issued||approved<=a.Issued.AddMinutes(-5)||(current&&(approved>Now||approved<=Now.AddMinutes(-5))))throw new Reject("FRESH_LONG_ACTIVATION_APPROVAL_REQUIRED");
+            a.Invocations.Add("LONG_APPROVAL:"+Str(approval,"approvalId"));
+            a.Invocations.Add("STAGE:"+Str(p,"stageId"));
+        }
         Dictionary<string,object> reviews=Object(p["reviews"]);Keys(reviews,"codex","chatgptController");
         Dictionary<string,object> codex=Object(reviews["codex"]),chatgpt=Object(reviews["chatgptController"]);
         Keys(codex,"channel","witnessed","decision","invocationId","receiptHash","contextHash","completedAt");
@@ -247,6 +278,7 @@ internal static class TronDirectEnforcer {
         if(Sha(Utf8.GetBytes(Json.Stringify(rule)))!=a.RuleHash)throw new Reject("RULE_HASH_MISMATCH");
         string contextHash=ContextHash(p);Hash(Str(p,"attestationContextHash"));Hash(Str(codex,"contextHash"));Hash(Str(chatgpt,"contextHash"));
         if(contextHash!=Str(p,"attestationContextHash")||contextHash!=Str(codex,"contextHash")||contextHash!=Str(chatgpt,"contextHash"))throw new Reject("REVIEW_CONTEXT_BINDING_MISMATCH");
+        if(version==2&&contextHash!=Str(Object(p["longApproval"]),"contextHash"))throw new Reject("LONG_APPROVAL_CONTEXT_MISMATCH");
         a.Name="TRONdirect1-"+a.Nonce;a.Description="TRONDIRECT1;"+a.Device+";"+a.Nonce+";"+Stamp(a.Expires)+";"+a.RuleHash;
         return a;
     }
@@ -254,8 +286,214 @@ internal static class TronDirectEnforcer {
         Dictionary<string,object> context=new Dictionary<string,object>();
         foreach(string key in new[]{"candidateDigest","category","confirmationStatus","deviceId","evidenceHash","localEvidenceHash","threatIntelEvidenceHash","policyHash","ruleHash","expiresAt","nonce"})context.Add(key,Str(p,key));
         context.Add("programSha256",Str(Object(p["rule"]),"programSha256"));
+        if(Int(p,"schemaVersion")==2){
+            context.Add("schemaVersion",2);context.Add("stageId",Str(p,"stageId"));context.Add("stageHash",Str(p,"stageHash"));
+            context.Add("issuedAt",Str(p,"issuedAt"));
+            Dictionary<string,object> approval=Object(p["longApproval"]);
+            foreach(string key in new[]{"approver","decision","approvalId","approvedAt"})context.Add("longApproval."+key,Str(approval,key));
+        }
         return Sha(Utf8.GetBytes(Json.Stringify(context)));
     }
+    // Separate inert journal. No firewall, task, executable, configuration or
+    // authorization-ledger capability is exposed to this storage interface.
+    internal interface IStagingStore {
+        bool IsInitialized {get;}
+        string ReadCheckpoint();
+        List<string> ReadLines();
+        void Initialize(string checkpoint);
+        void Commit(string expectedCheckpoint,string checkpoint,string line);
+    }
+    const int MaxStageEvents=1024;
+    const int MaxStageDocument=16384;
+    static readonly string EmptyStageHash=new string('0',64);
+    sealed class NativeStagingStore : IStagingStore {
+        public bool IsInitialized {get{
+            NoReparse(StageJournalPath);NoReparse(StageCheckpointPath);
+            bool journal=File.Exists(StageJournalPath),checkpoint=File.Exists(StageCheckpointPath);
+            if(journal!=checkpoint)throw new Reject("STAGING_INITIALIZATION_INCOMPLETE");
+            return journal;
+        }}
+        public string ReadCheckpoint(){CheckAcl(StageCheckpointPath,false);return ReadBounded(StageCheckpointPath);}
+        public List<string> ReadLines(){
+            CheckAcl(StageJournalPath,false);List<string> lines=new List<string>();
+            using(FileStream file=new FileStream(StageJournalPath,FileMode.Open,FileAccess.Read,FileShare.Read)){
+                if(file.Length>(long)MaxStageEvents*(MaxStageDocument+1))throw new Reject("STAGING_JOURNAL_TOO_LARGE");
+                using(StreamReader reader=new StreamReader(file,Utf8,false,4096)){
+                    while(!reader.EndOfStream){
+                        if(lines.Count>=MaxStageEvents)throw new Reject("STAGING_JOURNAL_FULL");
+                        StringBuilder line=new StringBuilder();int ch;
+                        while((ch=reader.Read())!=-1&&ch!='\n'){
+                            if(line.Length>=MaxStageDocument)throw new Reject("STAGING_LINE_TOO_LONG");line.Append((char)ch);
+                        }
+                        if(ch==-1)throw new Reject("STAGING_JOURNAL_TORN_LINE");
+                        lines.Add(line.ToString());
+                    }
+                }
+            }
+            return lines;
+        }
+        public void Initialize(string checkpoint){
+            if(IsInitialized)throw new Reject("STAGING_ALREADY_INITIALIZED");
+            // Inherit the existing protected root's ACL. Never change ACLs,
+            // reset an existing journal, or recover partial state implicitly.
+            WriteDurable(StageJournalPath,"",false);CheckAcl(StageJournalPath,false);
+            Atomic(StageCheckpointPath,Json.Parse(checkpoint));
+        }
+        public void Commit(string expectedCheckpoint,string checkpoint,string line){
+            if(ReadCheckpoint()!=expectedCheckpoint)throw new Reject("STAGING_CHECKPOINT_CHANGED");
+            CheckAcl(StageJournalPath,false);
+            // Checkpoint first: interrupted/torn appends become a hard recovery
+            // error. A successfully flushed append is the commit boundary.
+            Atomic(StageCheckpointPath,Json.Parse(checkpoint));
+            WriteDurable(StageJournalPath,line+"\n",true);
+        }
+    }
+    internal sealed class StagedTarget {
+        internal Dictionary<string,object> Target;
+        internal string Hash,Phase,ActivationNonce;
+    }
+    internal sealed class StagingHistory {
+        internal string Checkpoint,Head;
+        internal int Count;
+        internal DateTime LastAt;
+        internal Dictionary<string,StagedTarget> Targets=new Dictionary<string,StagedTarget>(StringComparer.Ordinal);
+    }
+    internal static bool IsStagingCommand(string command){return new[]{"init-staging","stage","show-stage","cancel-stage"}.Contains(command);}
+    static string StageCheckpoint(int count,string head){return Json.Stringify(new Dictionary<string,object>{{"schemaVersion",1},{"records",count},{"headHash",head}});}
+    static Dictionary<string,object> StageDocument(string raw){
+        if(raw==null||Utf8.GetByteCount(raw)>MaxStageDocument)throw new Reject("STAGING_DOCUMENT_TOO_LARGE");
+        Dictionary<string,object> p=Object(Json.Parse(raw));
+        if(Json.Stringify(p)!=raw)throw new Reject("CANONICAL_STAGING_JSON_REQUIRED");return p;
+    }
+    static void StageText(string value,int maximum){if(String.IsNullOrWhiteSpace(value)||value.Length>maximum||value.Any(Char.IsControl))throw new Reject("STAGING_TEXT_INVALID");}
+    internal static void ValidateStagedTarget(Dictionary<string,object> p,Dictionary<string,object> config,string host,DateTime now,bool current){
+        Keys(p,"schemaVersion","kind","authority","stageId","deviceId","machineGuid","host","policyHash","programSha256","remoteAddress","direction","protocol","scope","category","reason","evidenceReferences","stagingApproval","createdAt","expiresAt");
+        if(Int(p,"schemaVersion")!=1||Str(p,"kind")!="TRON_STAGED_TARGET"||Str(p,"authority")!="NONE")throw new Reject("STAGING_SCHEMA_AUTHORITY");
+        foreach(string key in new[]{"stageId","policyHash","programSha256"})Hash(Str(p,key));
+        Uuid(Str(p,"deviceId"));Uuid(Str(p,"machineGuid"));
+        if(Str(p,"deviceId")!=Str(config,"deviceId")||Str(p,"machineGuid")!=Str(config,"machineGuid")||Str(p,"host")!=host)throw new Reject("STAGING_HOST_MISMATCH");
+        if(current&&Str(p,"policyHash")!=Str(config,"policyHash"))throw new Reject("STAGING_POLICY_MISMATCH");
+        PublicIp(Str(p,"remoteAddress"));
+        if(current&&List(config,"protectedAddresses").Contains(Str(p,"remoteAddress")))throw new Reject("PROTECTED_MANAGEMENT_ADDRESS");
+        if(Str(p,"direction")!="OUTBOUND"||Str(p,"protocol")!="ANY"||Str(p,"scope")!="SINGLE_DEVICE")throw new Reject("STAGING_SCOPE_INVALID");
+        if(!new[]{"MALWARE_C2","PHISHING","EXFILTRATION"}.Contains(Str(p,"category")))throw new Reject("STAGING_CATEGORY_INVALID");
+        StageText(Str(p,"reason"),1024);
+        List<object> references=List(p,"evidenceReferences");if(references.Count<1||references.Count>8)throw new Reject("STAGING_EVIDENCE_REFERENCES_REQUIRED");
+        foreach(object reference in references){
+            string text=AsString(reference);StageText(text,2048);Uri uri;
+            if(!Uri.TryCreate(text,UriKind.Absolute,out uri)||uri.Scheme!="https"||String.IsNullOrEmpty(uri.Host)||uri.UserInfo.Length!=0)throw new Reject("STAGING_HTTPS_REFERENCE_REQUIRED");
+        }
+        DateTime created=Date(Str(p,"createdAt")),expires=Date(Str(p,"expiresAt"));
+        if(expires<=created||(expires-created).TotalHours>24)throw new Reject("STAGING_TTL_INVALID");
+        if(current&&(created>now||created<=now.AddMinutes(-5)||expires<=now))throw new Reject("STAGING_NOT_CURRENT");
+        Dictionary<string,object> approval=Object(p["stagingApproval"]);
+        Keys(approval,"approver","decision","approvedAt","approvalReference");
+        if(Str(approval,"approver")!="Long"||Str(approval,"decision")!="APPROVE_STAGE_ONLY")throw new Reject("STAGING_ONLY_APPROVAL_REQUIRED");
+        StageText(Str(approval,"approvalReference"),256);
+        DateTime approved=Date(Str(approval,"approvedAt"));
+        if(approved>created||approved<=created.AddHours(-24))throw new Reject("STAGING_APPROVAL_NOT_CURRENT");
+    }
+    internal static StagingHistory ReadStaging(IStagingStore store,Dictionary<string,object> config,string host){
+        if(!store.IsInitialized)throw new Reject("STAGING_NOT_INITIALIZED");
+        StagingHistory h=new StagingHistory{Checkpoint=store.ReadCheckpoint(),Head=EmptyStageHash,LastAt=DateTime.SpecifyKind(DateTime.MinValue,DateTimeKind.Utc)};
+        Dictionary<string,object> checkpoint=StageDocument(h.Checkpoint);Keys(checkpoint,"schemaVersion","records","headHash");
+        int expected=Int(checkpoint,"records");Hash(Str(checkpoint,"headHash"));
+        if(Int(checkpoint,"schemaVersion")!=1||expected<0||expected>MaxStageEvents)throw new Reject("STAGING_CHECKPOINT_INVALID");
+        List<string> lines=store.ReadLines();if(lines.Count!=expected)throw new Reject("STAGING_HISTORY_COUNT_MISMATCH");
+        foreach(string line in lines){
+            Dictionary<string,object> e=StageDocument(line);
+            Keys(e,"schemaVersion","sequence","previousHash","event","at","stageId","stageHash","target","activationNonce","activationHash");
+            if(Int(e,"schemaVersion")!=1||Int(e,"sequence")!=h.Count+1||Str(e,"previousHash")!=h.Head)throw new Reject("STAGING_CHAIN_MISMATCH");
+            DateTime at=Date(Str(e,"at"));if(at<h.LastAt)throw new Reject("STAGING_CLOCK_REGRESSED");
+            string id=Str(e,"stageId"),digest=Str(e,"stageHash"),kind=Str(e,"event");Hash(id);Hash(digest);
+            if(kind=="STAGED"){
+                Dictionary<string,object> target=Object(e["target"]);ValidateStagedTarget(target,config,host,at,false);
+                if(h.Targets.ContainsKey(id)||id!=Str(target,"stageId")||digest!=Sha(Utf8.GetBytes(Json.Stringify(target)))||Date(Str(target,"createdAt"))>at||e["activationNonce"]!=null||e["activationHash"]!=null)throw new Reject("STAGING_CREATE_INVALID");
+                h.Targets.Add(id,new StagedTarget{Target=target,Hash=digest,Phase="STAGED"});
+            }else{
+                if((kind!="CANCELLED"&&kind!="CONSUMED")||!h.Targets.ContainsKey(id)||h.Targets[id].Phase!="STAGED"||h.Targets[id].Hash!=digest||e["target"]!=null)throw new Reject("STAGING_TRANSITION_INVALID");
+                if(kind=="CONSUMED"){Hash(Str(e,"activationNonce"));Hash(Str(e,"activationHash"));h.Targets[id].ActivationNonce=Str(e,"activationNonce");}
+                else if(e["activationNonce"]!=null||e["activationHash"]!=null)throw new Reject("STAGING_CANCEL_INVALID");
+                h.Targets[id].Phase=kind;
+            }
+            h.Count++;h.Head=Sha(Utf8.GetBytes(line));h.LastAt=at;
+        }
+        if(h.Head!=Str(checkpoint,"headHash"))throw new Reject("STAGING_HEAD_MISMATCH");return h;
+    }
+    static void AppendStage(IStagingStore store,StagingHistory h,string kind,string id,string digest,object target,string nonce,string activationHash,DateTime now){
+        if(h.Count>=MaxStageEvents)throw new Reject("STAGING_JOURNAL_FULL");
+        if(now.Kind!=DateTimeKind.Utc||now<h.LastAt)throw new Reject("STAGING_CLOCK_REGRESSED");
+        string line=Json.Stringify(new Dictionary<string,object>{{"schemaVersion",1},{"sequence",h.Count+1},{"previousHash",h.Head},{"event",kind},{"at",Stamp(now)},{"stageId",id},{"stageHash",digest},{"target",target},{"activationNonce",nonce},{"activationHash",activationHash}});
+        if(Utf8.GetByteCount(line)>MaxStageDocument)throw new Reject("STAGING_EVENT_TOO_LARGE");
+        store.Commit(h.Checkpoint,StageCheckpoint(h.Count+1,Sha(Utf8.GetBytes(line))),line);
+    }
+    internal static Dictionary<string,object> RunStagingCommand(string command,string input,IStagingStore store,Dictionary<string,object> config,string host,DateTime now){
+        if(!IsStagingCommand(command))throw new Reject("NOT_AN_INERT_STAGING_COMMAND");
+        if(now.Kind!=DateTimeKind.Utc)throw new Reject("UTC_CLOCK_REQUIRED");
+        if(command=="init-staging"){
+            if(input!=null)throw new Reject("BAD_ARGUMENT_COUNT");
+            store.Initialize(StageCheckpoint(0,EmptyStageHash));
+            ReadStaging(store,config,host);
+            return new Dictionary<string,object>{{"status","STAGING_INITIALIZED"},{"authority","NONE"},{"firewallChanged",false}};
+        }
+        StagingHistory h=ReadStaging(store,config,host);
+        if(now.Kind!=DateTimeKind.Utc||now<h.LastAt)throw new Reject("STAGING_CLOCK_REGRESSED");
+        string id=input;
+        if(command=="stage"){
+            Dictionary<string,object> p=StageDocument(input);ValidateStagedTarget(p,config,host,now,true);id=Str(p,"stageId");
+            if(h.Targets.ContainsKey(id))throw new Reject("STAGE_ID_ALREADY_USED");
+            AppendStage(store,h,"STAGED",id,Sha(Utf8.GetBytes(input)),p,null,null,now);
+            h=ReadStaging(store,config,host);
+        }else{
+            Hash(id);if(!h.Targets.ContainsKey(id))throw new Reject("STAGE_NOT_FOUND");
+            if(command=="cancel-stage"){
+                if(h.Targets[id].Phase!="STAGED")throw new Reject("STAGE_NOT_PENDING");
+                AppendStage(store,h,"CANCELLED",id,h.Targets[id].Hash,null,null,null,now);h=ReadStaging(store,config,host);
+            }
+        }
+        StagedTarget stage=h.Targets[id];
+        return new Dictionary<string,object>{{"status",stage.Phase=="STAGED"&&Date(Str(stage.Target,"expiresAt"))<=now?"EXPIRED":stage.Phase},{"stageId",id},{"stageHash",stage.Hash},{"target",stage.Target},{"activationNonce",stage.ActivationNonce},{"programBinding","UNBOUND_HASH_ONLY"},{"authority","NONE"},{"firewallChanged",false}};
+    }
+    internal static void CheckStagedActivation(StagedTarget stage,Dictionary<string,object> p,Dictionary<string,object> config,string host,DateTime now){
+        if(stage.Phase!="STAGED")throw new Reject("STAGE_NOT_PENDING");
+        if(stage.Hash!=Sha(Utf8.GetBytes(Json.Stringify(stage.Target))))throw new Reject("STAGING_TARGET_CHANGED");
+        ValidateStagedTarget(stage.Target,config,host,now,false);
+        if(Str(stage.Target,"policyHash")!=Str(config,"policyHash"))throw new Reject("STAGING_POLICY_MISMATCH");
+        if(Int(p,"schemaVersion")!=2||Str(p,"stageId")!=Str(stage.Target,"stageId")||Str(p,"stageHash")!=stage.Hash||Str(p,"candidateDigest")!=stage.Hash)throw new Reject("ACTIVATION_STAGE_BINDING_MISMATCH");
+        Dictionary<string,object> rule=Object(p["rule"]);
+        if(Str(rule,"programSha256")!=Str(stage.Target,"programSha256")||Str(rule,"remoteAddress")!=Str(stage.Target,"remoteAddress")||Str(p,"category")!=Str(stage.Target,"category"))throw new Reject("ACTIVATION_TARGET_MISMATCH");
+        DateTime expiry=Date(Str(stage.Target,"expiresAt"));
+        if(expiry<=now||Date(Str(p,"expiresAt"))>expiry)throw new Reject("STAGE_EXPIRED_OR_ACTIVATION_OUTLIVES_STAGE");
+        if(Date(Str(Object(p["longApproval"]),"approvedAt"))<=Date(Str(stage.Target,"createdAt")))throw new Reject("NEW_LONG_APPROVAL_AFTER_STAGING_REQUIRED");
+        // An actual local canonical executable and configured pin are still
+        // checked by CheckProgram; the staged hash is never installed as a pin.
+    }
+    static void ActivateStaged(string raw){
+        NeedController();if(!Bool(Config,"authorizationEnabled"))throw new Reject("ENFORCEMENT_DISABLED");
+        Authorization a=VerifyAttestation(raw,true);Dictionary<string,object> p=Object(Json.Parse(raw));
+        IStagingStore store=new NativeStagingStore();StagingHistory h=ReadStaging(store,Config,Environment.MachineName);
+        string id=Str(p,"stageId");if(!h.Targets.ContainsKey(id))throw new Reject("STAGE_NOT_FOUND");
+        StagedTarget stage=h.Targets[id];CheckStagedActivation(stage,p,Config,Environment.MachineName,Now);
+        NeedClockHealthy(false);
+        using(FileStream program=CheckProgram(a.Program,a.ProgramSha256)){
+            NeedCleanupHealthy();CheckFirewall();
+            // One attempt consumes the staged record BEFORE any firewall change.
+            // Failure requires a new stage and fresh reviews, never an auto-retry.
+            ConsumeStagedActivation(store,p,Config,Environment.MachineName,Now);
+            RunAttested(raw);
+        }
+    }
+    // Only called after the native controller, attestation, local file, pin,
+    // cleanup and firewall preflight gates. This helper grants no authority.
+    internal static void ConsumeStagedActivation(IStagingStore store,Dictionary<string,object> p,Dictionary<string,object> config,string host,DateTime now){
+        StagingHistory h=ReadStaging(store,config,host);string id=Str(p,"stageId");
+        if(!h.Targets.ContainsKey(id))throw new Reject("STAGE_NOT_FOUND");
+        StagedTarget stage=h.Targets[id];CheckStagedActivation(stage,p,config,host,now);
+        Hash(Str(p,"nonce"));
+        AppendStage(store,h,"CONSUMED",id,stage.Hash,null,Str(p,"nonce"),Sha(Utf8.GetBytes(Json.Stringify(p))),now);
+        ReadStaging(store,config,host);
+    }
+
     static string CanonicalProgram(string input) {
         if(input.Length<8||input.Length>240||!Regex.IsMatch(input,@"\A[A-Za-z]:\\")||input.IndexOf('/')>=0||input.IndexOf(':',2)>=0||input.IndexOfAny(new[]{'*','?','"','\0','\r','\n','%','~'})>=0)throw new Reject("PROGRAM_PATH_INVALID");
         string full=Path.GetFullPath(input);
@@ -566,7 +804,16 @@ internal static class TronDirectEnforcer {
         List<Record> r=Records();
         int verified=0;bool rulesHealthy=true;
         foreach(Record rec in r.Where(x=>x.Phase=="ACTIVE")){try{if(rec.Auth.Expires>Now&&IsPresentExact(rec.Auth)&&ProgramIdentityCurrent(rec.Auth.Program,rec.Auth.ProgramSha256))verified++;else rulesHealthy=false;}catch(Exception){rulesHealthy=false;}}
-        Print(new Dictionary<string,object>{{"status",Bool(Config,"authorizationEnabled")&&cleanup&&firewall&&clock&&rulesHealthy?"ARMED_ADMIN_CONTROLLER_ONLY":"DISABLED_OR_NOT_READY"},{"authorizationEnabled",Bool(Config,"authorizationEnabled")},{"deviceId",Str(Config,"deviceId")},{"cleanupHealthy",cleanup},{"cleanupError",error},{"firewallEffective",firewall},{"firewallError",firewallError},{"clockHealthy",clock},{"clockError",clockError},{"ownRulesHealthy",rulesHealthy},{"ledgerRecords",r.Count},{"activeLedgerRecords",r.Count(x=>x.Phase=="ACTIVE")},{"verifiedActiveRules",verified}});
+        Dictionary<string,object> staging;
+        try{
+            IStagingStore store=new NativeStagingStore();
+            if(!store.IsInitialized)staging=new Dictionary<string,object>{{"status","NOT_INITIALIZED"},{"authority","NONE"}};
+            else{
+                StagingHistory h=ReadStaging(store,Config,Environment.MachineName);if(h.LastAt>Now)throw new Reject("STAGING_CLOCK_REGRESSED");
+                staging=new Dictionary<string,object>{{"status","HEALTHY"},{"authority","NONE"},{"journalEvents",h.Count},{"targets",h.Targets.Count},{"pending",h.Targets.Values.Count(x=>x.Phase=="STAGED"&&Date(Str(x.Target,"expiresAt"))>Now)},{"expired",h.Targets.Values.Count(x=>x.Phase=="STAGED"&&Date(Str(x.Target,"expiresAt"))<=Now)},{"cancelled",h.Targets.Values.Count(x=>x.Phase=="CANCELLED")},{"consumed",h.Targets.Values.Count(x=>x.Phase=="CONSUMED")}};
+            }
+        }catch(Exception e){staging=new Dictionary<string,object>{{"status","RECOVERY_REQUIRED"},{"authority","NONE"},{"error",e.Message}};}
+        Print(new Dictionary<string,object>{{"status",Bool(Config,"authorizationEnabled")&&cleanup&&firewall&&clock&&rulesHealthy?"ARMED_ADMIN_CONTROLLER_ONLY":"DISABLED_OR_NOT_READY"},{"authorizationEnabled",Bool(Config,"authorizationEnabled")},{"deviceId",Str(Config,"deviceId")},{"cleanupHealthy",cleanup},{"cleanupError",error},{"firewallEffective",firewall},{"firewallError",firewallError},{"clockHealthy",clock},{"clockError",clockError},{"ownRulesHealthy",rulesHealthy},{"ledgerRecords",r.Count},{"activeLedgerRecords",r.Count(x=>x.Phase=="ACTIVE")},{"verifiedActiveRules",verified},{"staging",staging}});
     }
 
     static Dictionary<string,object> Object(object o){Dictionary<string,object>d=o as Dictionary<string,object>;if(d==null)throw new Reject("OBJECT_REQUIRED");return d;}

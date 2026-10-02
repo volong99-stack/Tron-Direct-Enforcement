@@ -9,7 +9,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $manifest = Get-Content -LiteralPath (Join-Path $root 'RELEASE-FILES.json') -Raw | ConvertFrom-Json
 $tests = Get-Content -LiteralPath (Join-Path $root 'ci-results\tests.json') -Raw | ConvertFrom-Json
 if ($tests.status -ne 'PREVIEW_TESTS_PASSED' -or -not $tests.standardUserTokenVerified -or
-    $tests.pureTestsPassed -lt 1 -or $tests.windowsRefusalTestsPassed -ne 8) { throw 'Passing preview tests are required.' }
+    $tests.stagingTestsPassed -lt 1 -or $tests.stagingFirewallOperations -ne 0 -or
+    $tests.pureTestsPassed -lt 1 -or $tests.windowsRefusalTestsPassed -ne 13) { throw 'Passing preview tests are required.' }
 $config = Get-Content -LiteralPath (Join-Path $root 'config.disabled.example.json') -Raw | ConvertFrom-Json
 if ($config.authorizationEnabled -or $config.allowedProgramPaths.Count -ne 0 -or
     @($config.programSha256Pins.PSObject.Properties).Count -ne 0) { throw 'Preview configuration must remain disabled with empty pins.' }
@@ -17,14 +18,14 @@ $dist = Join-Path $root 'dist'
 if (Test-Path -LiteralPath $dist) { throw 'Refusing to overwrite an existing preview.' }
 $stage = Join-Path $dist 'stage'
 [void](New-Item -ItemType Directory -Path $stage)
-$allowed = @('TronDirectEnforcer.exe','TronDirectEnforcerPureTests.exe','LICENSE','README.md','PREVIEW.md','config.disabled.example.json','VALIDATION.json')
+$allowed = @('TronDirectEnforcer.exe','TronDirectEnforcerPureTests.exe','LICENSE','README.md','PREVIEW.md','STAGING.md','config.disabled.example.json','VALIDATION.json')
 if (@(Compare-Object $allowed @($manifest.previewArchiveFiles)).Count -ne 0) { throw 'Preview manifest differs from the reviewed file set.' }
 foreach ($name in @('TronDirectEnforcer.exe','TronDirectEnforcerPureTests.exe')) {
     $source = Join-Path (Join-Path $root 'build') $name
     if ((Get-AuthenticodeSignature -LiteralPath $source).Status -ne 'NotSigned') { throw 'Unexpected signing state: review the release policy.' }
     Copy-Item -LiteralPath $source -Destination (Join-Path $stage $name)
 }
-foreach ($name in @('LICENSE','README.md','PREVIEW.md','config.disabled.example.json')) {
+foreach ($name in @('LICENSE','README.md','PREVIEW.md','STAGING.md','config.disabled.example.json')) {
     Copy-Item -LiteralPath (Join-Path $root $name) -Destination (Join-Path $stage $name)
 }
 $validation = [ordered]@{
@@ -33,6 +34,8 @@ $validation = [ordered]@{
     sourceCommit = $env:GITHUB_SHA
     workflowRun = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
     pureTestsPassed = $tests.pureTestsPassed
+    stagingTestsPassed = $tests.stagingTestsPassed
+    stagingFirewallOperations = $tests.stagingFirewallOperations
     windowsRefusalTestsPassed = $tests.windowsRefusalTestsPassed
     standardUserTokenVerified = $true
     authenticodeSigned = $false

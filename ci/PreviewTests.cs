@@ -37,13 +37,14 @@ internal static class PreviewTests {
             }
             string bin = AppDomain.CurrentDomain.BaseDirectory;
             Result pure = Run(Path.Combine(bin, "TronDirectEnforcerPureTests.exe"), "");
-            Match summary = Regex.Match(pure.Output, "^\\{\"status\":\"PURE_TESTS_PASSED\",\"passed\":([0-9]+),\"nativeOperations\":false\\}$");
+            Match summary = Regex.Match(pure.Output, "^\\{\"status\":\"PURE_TESTS_PASSED\",\"passed\":([0-9]+),\"stagingTestsPassed\":([0-9]+),\"stagingFirewallOperations\":0,\"nativeOperations\":false\\}$");
             if (pure.Code != 0 || pure.Error.Length != 0 || !summary.Success)
                 throw new Exception("PURE_HARNESS_FAILED: " + pure.Output + " " + pure.Error);
             int count = Int32.Parse(summary.Groups[1].Value);
-            if (count < 1) throw new Exception("NO_PURE_TESTS_EXECUTED");
+            int stagingCount = Int32.Parse(summary.Groups[2].Value);
+            if (count < 1 || stagingCount < 1) throw new Exception("NO_PURE_OR_STAGING_TESTS_EXECUTED");
             string native = Path.Combine(bin, "TronDirectEnforcer.exe");
-            string[] arguments = { "install missing-test-config.json", "apply e30=", "arm", "disarm", "cleanup", "install-cleanup", "rollback invalid-nonce", "status" };
+            string[] arguments = { "install missing-test-config.json", "apply e30=", "arm", "disarm", "cleanup", "install-cleanup", "rollback invalid-nonce", "status", "init-staging", "stage missing-stage.json", "show-stage invalid-id", "cancel-stage invalid-id", "activate missing-activation.json" };
             for (int i = 0; i < arguments.Length; i++) {
                 Result refusal = Run(native, arguments[i]);
                 string expected = i == 0 ? "ADMINISTRATOR_REQUIRED" : "RUN_PROTECTED_INSTALLED_EXECUTABLE";
@@ -53,6 +54,7 @@ internal static class PreviewTests {
                     throw new Exception("REFUSAL_PROBE_FAILED: " + arguments[i] + " " + refusal.Output);
             }
             Console.WriteLine("{\"status\":\"PREVIEW_TESTS_PASSED\",\"pureTestsPassed\":" + count +
+                ",\"stagingTestsPassed\":" + stagingCount + ",\"stagingFirewallOperations\":0" +
                 ",\"windowsRefusalTestsPassed\":" + arguments.Length +
                 ",\"standardUserTokenVerified\":true,\"firewallRulesCreated\":false,\"installed\":false}");
             return 0;
